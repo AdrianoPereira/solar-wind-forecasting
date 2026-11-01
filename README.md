@@ -17,30 +17,72 @@ that combines three sources of information, all cut off at `t0 − 1 h`:
 
 ![RMSE by lead time on the test period](docs/presentation/figures/rmse_by_lead.png)
 
-## Results
+## Benchmark
 
-Test period: Jan 2024 – Oct 2026, 4,105 issuances every 6 h. This period was never used
-for training or model selection.
+Every model was scored on the **same 4,105 issuances** of the hybrid test period
+(Jan 2024 – Oct 2026, one every 6 h), against the same observed hourly speed, on the
+221,818 forecast hours where the observation exists. No model saw this period during
+training or selection.
 
-| Model | RMSE (km/s) | RMSE at 72 h |
-| --- | ---: | ---: |
-| **Hybrid, tuned LightGBM** | **75.3** | **91** |
-| Hybrid, XGBoost | 75.7 | — |
-| Hybrid, scikit-learn HGB | 76.0 | — |
-| Hybrid, tuned LightGBM, without coronal holes | 78.6 | 96 |
-| Persistence | 97.8 | 129 |
-| 27-day recurrence | 107.8 | 110 |
+| Model | Family | Trained on | RMSE (km/s) | 1–24 h | 25–48 h | 49–72 h | Skill vs persistence | TIMSE pooled (M) | TIMSE median per issuance (k) |
+| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| **Hybrid · LightGBM, tuned** | Hybrid boosting | 2011–2021 | **75.3** | 57.3 | 78.7 | 86.7 | +23.1% | 74.6 | 358 |
+| Hybrid · XGBoost | Hybrid boosting | 2011–2021 | 75.7 | 56.7 | 79.5 | 87.6 | +22.6% | 72.2 | 369 |
+| Hybrid · scikit-learn HGB | Hybrid boosting | 2011–2021 | 76.0 | 57.0 | 79.7 | 87.9 | +22.3% | 74.4 | 375 |
+| Hybrid · LightGBM | Hybrid boosting | 2011–2021 | 76.3 | 56.9 | 80.1 | 88.4 | +22.0% | 75.2 | 372 |
+| Hybrid · CatBoost | Hybrid boosting | 2011–2021 | 76.4 | 57.7 | 79.9 | 88.3 | +21.9% | 72.2 | 380 |
+| Hybrid · NGBoost | Hybrid boosting | 2011–2021 | 77.5 | 57.7 | 81.2 | 90.0 | +20.7% | 77.4 | 386 |
+| Hybrid · LightGBM, tuned, no coronal holes | Hybrid boosting | 2011–2021 | 78.6 | 58.0 | 82.4 | 91.7 | +19.6% | 81.7 | 343 |
+| LSTM | Neural network | 2019 | 86.5 | 56.2 | 89.5 | 106.2 | +11.6% | 73.8 | 384 |
+| GRU | Neural network | 2019 | 86.6 | 55.7 | 89.3 | 106.8 | +11.5% | 73.5 | 392 |
+| Transformer | Neural network | 2003–2009 | 88.3 | 60.6 | 90.7 | 107.3 | +9.7% | 62.6 | 445 |
+| Transformer | Neural network | 2019 | 89.1 | 62.4 | 90.8 | 108.1 | +8.9% | 78.6 | 506 |
+| Patch Transformer | Neural network | 2019 | 91.6 | 70.7 | 93.0 | 107.3 | +6.4% | 77.4 | 526 |
+| Prophet, tuned (plasma regressors) | Statistical | 180 days before each issuance | 93.0 | 91.3 | 93.4 | 94.2 | +5.0% | 74.2 | 712 |
+| Prophet | Statistical | 180 days before each issuance | 96.8 | 96.5 | 96.9 | 97.1 | +1.0% | 105.9 | 640 |
+| GRU with attention | Neural network | 2003–2009 | 96.9 | 71.0 | 99.8 | 114.8 | +0.9% | 64.0 | 552 |
+| Persistence | Baseline | — | 97.8 | 60.2 | 100.8 | 122.2 | +0.0% | 64.0 | 556 |
+| GRU with attention | Neural network | 2019 | 104.8 | 78.6 | 109.3 | 121.9 | -7.2% | 85.9 | 953 |
+| LSTM with attention | Neural network | 2019 | 105.4 | 79.8 | 108.3 | 123.4 | -7.7% | 92.1 | 953 |
+| Patch Transformer | Neural network | 2003–2009 | 106.3 | 80.9 | 109.7 | 123.8 | -8.7% | 50.1 | 695 |
+| 27-day recurrence | Baseline | — | 107.8 | 106.5 | 108.0 | 108.8 | -10.2% | 59.9 | 928 |
+| Hybrid · XGBoost, TIMSE weights | Hybrid boosting | 2011–2021 | 108.8 | 90.7 | 112.6 | 120.9 | -11.2% | 49.2 | 729 |
 
-- Error is 23% below persistence overall and 30% below at 72 h.
-- Persistence is better only during the first ~10 h.
-- Coronal holes reduce RMSE by 3.4 km/s (95% CI 1.4–5.5) overall and by 5.5 km/s at 72 h.
-- Five boosting libraries (scikit-learn, LightGBM, XGBoost, CatBoost and NGBoost) land
-  within 2 km/s of each other.
+Lead-time columns are RMSE in km/s. Skill is the RMSE reduction against persistence.
+
+![RMSE by lead time of the best model of each family](docs/figures/benchmark_rmse_by_lead.png)
+
+- The tuned LightGBM hybrid has the lowest RMSE: 23% below persistence overall and 30%
+  below at 72 h (91 vs 129 km/s).
+- In the first day the simple models are hard to beat. Persistence wins during the first
+  ~10 h, and the LSTM and GRU are slightly better than the hybrid over 1–24 h
+  (56 vs 57 km/s). After ~24 h the hybrid leads at every lead.
+- All five boosting libraries land within 2 km/s of each other. The coronal-hole
+  features are worth 3.4 km/s overall (95% CI 1.4–5.5) and 5.5 km/s at 72 h.
+- Prophet is flat across leads: weak early, but better than every neural network at
+  49–72 h.
 - **A caveat on TIMSE:** pooled over the whole period, it rewards forecasts biased
-  upwards. A constant 700 km/s scores a better TIMSE than any model. How the organizers
-  aggregate TIMSE is still to be confirmed.
+  upwards. That is why the TIMSE-weighted hybrid and the 2003–2009 Patch Transformer
+  have the best pooled TIMSE with some of the worst RMSEs, and why a constant 700 km/s
+  (42.1 M) beats every model. Scored per issuance (last column), the bias stops paying.
+  How the organizers aggregate TIMSE is still to be confirmed.
 
-Details in [docs/hybrid.md](docs/hybrid.md). The results deck is
+How to read the comparison:
+
+- **Training data differs.** The hybrids were trained on 2011–2021. The neural networks
+  are the saved checkpoints of earlier experiments, trained on 2019 or on 2003–2009
+  (validation 2008–2009), and were not retrained here. Retraining them on 2011–2021
+  would make the comparison stricter.
+- **Inputs.** Neural networks and Prophet read the real-time ACE product, as they would
+  in operations. The hybrids read Level 2 where available (until July 2024) and the
+  real-time product afterwards. Using the real-time product alone changes the hybrid's
+  RMSE from 76.0 to 76.2 km/s.
+- Prophet is refit at every issuance on the previous 180 days, with the configuration
+  selected in [docs/tuning.md](docs/tuning.md).
+
+To reproduce, run `scripts/benchmark_all_models.py` (about 10 min on 8 cores) and then
+`scripts/plot_benchmark.py`. Results go to `data/experiments/benchmark_2024_2026/`.
+Details of the hybrid are in [docs/hybrid.md](docs/hybrid.md); the results deck is
 [docs/presentation/benchlab_results.pptx](docs/presentation/benchlab_results.pptx).
 
 ## Repository layout
@@ -131,7 +173,15 @@ Each experiment writes `report.json` (metrics and confidence intervals),
   --output-dir data/experiments/hybrid_lightgbm_tuning
 ```
 
-**5. Figures and deck:**
+**5. Benchmark of all models** on the same test issuances (needs the `lstm` and `forecast`
+extras):
+
+```bash
+OMP_NUM_THREADS=1 .venv/bin/python scripts/benchmark_all_models.py --workers 8
+.venv/bin/python scripts/plot_benchmark.py
+```
+
+**6. Figures and deck:**
 
 ```bash
 .venv/bin/python docs/presentation/make_figures.py   # deck figures, in docs/presentation/figures/
@@ -167,8 +217,8 @@ Some tests need the optional extras (`boosting`, `lstm`, `forecast`); the rest r
 
 ## Other models
 
-Before the hybrid we tried Prophet, LSTM, GRU, attention models and Transformers.
-Documentation for each (in Portuguese):
+Before the hybrid we tried Prophet, LSTM, GRU, attention models and Transformers (see the
+benchmark above). Documentation for each (in Portuguese):
 
 - [Prophet and baselines](docs/forecasting.md), [Prophet tuning](docs/tuning.md) and
   [Prophet on complete windows](docs/prophet_complete_windows.md); CLI `benchlab-forecast`
