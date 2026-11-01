@@ -21,3 +21,6 @@ IMG_1046.PNG
 .agents/
 .codex/
 .claude/
+
+# Pacote de submissão gerado por submission/build.sh
+submission/dist/

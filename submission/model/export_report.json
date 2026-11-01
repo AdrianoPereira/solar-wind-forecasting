@@ -1,0 +1,46 @@
+{
+  "tuned": {
+    "weights_first_12h": [
+      0.91,
+      0.84,
+      0.77,
+      0.7,
+      0.67,
+      0.63,
+      0.57,
+      0.51,
+      0.45,
+      0.41,
+      0.41,
+      0.4
+    ],
+    "last_lead_with_weight": 72,
+    "test_rmse_hybrid": 75.25571554790992,
+    "test_rmse_blend": 74.41953659464806,
+    "test_rmse_1_12_hybrid": 48.1883166172833,
+    "test_rmse_1_12_blend": 41.269312564792294,
+    "test_rmse_persistence": 97.82454973080624
+  },
+  "tuned_no_ch": {
+    "weights_first_12h": [
+      0.91,
+      0.84,
+      0.76,
+      0.68,
+      0.65,
+      0.62,
+      0.57,
+      0.51,
+      0.44,
+      0.39,
+      0.39,
+      0.39
+    ],
+    "last_lead_with_weight": 72,
+    "test_rmse_hybrid": 78.63908831437108,
+    "test_rmse_blend": 77.92254603362328,
+    "test_rmse_1_12_hybrid": 47.686136267989696,
+    "test_rmse_1_12_blend": 41.67903690969473,
+    "test_rmse_persistence": 97.82454973080624
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "team_name": "Aquiri Space",
+  "contact_email": "imadrianoalmeida@gmail.com",
+  "cpu_units": 2048,
+  "memory_mib": 4096,
+  "declared_domains": ["sohoftp.nascom.nasa.gov", "services.swpc.noaa.gov", "jsoc1.stanford.edu"]
+}

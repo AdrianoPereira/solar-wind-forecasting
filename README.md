@@ -231,9 +231,35 @@ benchmark above). Documentation for each (in Portuguese):
 
 ## Tournament submission
 
+`submission/` holds the Benchlab container: the tuned LightGBM hybrid blended with
+persistence (per-lead weights chosen on 2022–2023: 0.91 at 1 h, 0.22 at 24 h, 0.07 at
+72 h). It reaches a test RMSE of 74.4 km/s, against 75.3 for the hybrid alone; most of the
+gain is in the first 12 hours (48.2 → 41.3 km/s).
+
+At each run, `forecast.py` downloads only data available at `t0`:
+
+- ACE hourly plasma from NOAA SWPC, with the latest hours completed from the 1-minute file;
+- three SDO/AIA 193 Å images from the JSOC near-real-time folder.
+
+It builds the features with the same `build_pairs` used in training and uploads 72
+values. Without AIA images it switches to the model without coronal holes. Details are in
+[submission/README.md](submission/README.md).
+
+```bash
+.venv/bin/python scripts/export_submission_model.py   # boosters, feature order and blend weights -> submission/model/
+bash submission/build.sh                               # package and zip -> submission/dist/submission.zip
+.venv/bin/python submission/forecast.py 20261111T060000Z   # run one forecast without Docker (PYTHONPATH=src)
+```
+
+Checks done before submitting:
+
+- Replaying past issuances live gives the same features as the archive: coronal-hole
+  fractions within 0.001, and forecasts within 1–12 km/s of the offline test predictions.
+- `run.sh` and `upload.sh` pass the starter kit's mock upload in a clean Python 3.14
+  environment with only `requirements.txt`, in about 25 s.
+- The Docker image itself was not built locally (no rootless Docker on the cluster). Its
+  first build happens in the Benchlab pre-deployment dry run.
+
 The official starter kit (`benchlab-starter-kit/`) is a separate repository from the
 organizers and is kept out of this one. It holds the team token in `.team`, which must
-never be committed. Clone the kit next to this project, following the organizers'
-instructions.
-
-The submission container for the hybrid model is still being prepared.
+never be committed.

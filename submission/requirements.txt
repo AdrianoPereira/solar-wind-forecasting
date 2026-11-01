@@ -1,0 +1,5 @@
+# Same versions as the training environment (uv.lock of the repository).
+numpy==2.5.3
+pandas==3.0.6
+lightgbm==4.7.0
+astropy==8.0.1
