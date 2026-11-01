@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Score every model on the same issuances: the hybrid test period, Jan 2024 – Oct 2026.
 
-Neural networks are loaded from their saved checkpoints (no retraining) and Prophet is refit at
+Neural networks are loaded from their saved checkpoints: the ones retrained on the hybrid's
+splits (scripts/slurm/train_networks.sbatch) and the earlier 2019 and 2003–2009 runs and Prophet is refit at
 every issuance with its fixed configuration, as in its own experiments. Hybrid forecasts and the
 persistence/recurrence baselines come from the saved hybrid test predictions. Every model is
 scored against the same observed target on the pairs where all of them have a forecast.
@@ -23,6 +24,7 @@ PLASMA = Path("data/ace_hourly_2011_2026/ace_swepam_hourly.parquet")
 MAG = Path("data/ace_mag_hourly_2011_2026/ace_mag_hourly.parquet")
 
 # column: (label, family, training period)
+SUBMISSION = {"submission": ("Submission · tuned LightGBM + persistence blend", "Hybrid boosting", "2011–2021")}
 HYBRIDS = {
     "hybrid_lightgbm_tuning/lightgbm_tuned": ("Hybrid · LightGBM, tuned", "Hybrid boosting", "2011–2021"),
     "hybrid_xgboost_2011_2026/hybrid_mse": ("Hybrid · XGBoost", "Hybrid boosting", "2011–2021"),
@@ -35,6 +37,12 @@ HYBRIDS = {
     "hybrid_xgboost_2011_2026/hybrid_timse": ("Hybrid · XGBoost, TIMSE weights", "Hybrid boosting", "2011–2021"),
 }
 NETWORKS = {
+    "lstm_2011_2021": ("LSTM", "Neural network", "2011–2021"),
+    "gru_2011_2021": ("GRU", "Neural network", "2011–2021"),
+    "attention_gru_2011_2021": ("GRU with attention", "Neural network", "2011–2021"),
+    "attention_lstm_2011_2021": ("LSTM with attention", "Neural network", "2011–2021"),
+    "transformer_2011_2021": ("Transformer", "Neural network", "2011–2021"),
+    "patch_transformer_2011_2021": ("Patch Transformer", "Neural network", "2011–2021"),
     "lstm_2019": ("LSTM", "Neural network", "2019"),
     "gru_2019": ("GRU", "Neural network", "2019"),
     "attention_gru_2019_nov": ("GRU with attention", "Neural network", "2019"),
@@ -70,6 +78,15 @@ def add_hybrids(table):
         other["origin_utc"] = pd.to_datetime(other.origin_utc, utc=True)
         table = table.merge(other[["origin_utc", "horizon", column]].rename(columns={column: key}),
                             on=["origin_utc", "horizon"], how="left", validate="one_to_one")
+    return table
+
+
+def add_submission(table):
+    """The submitted forecast: per-lead persistence weights from submission/model/tuned.json."""
+    meta = json.loads(Path("submission/model/tuned.json").read_text())
+    w = np.asarray(meta["persistence_weight_by_lead"])[table.horizon.to_numpy() - 1]
+    hybrid = table["hybrid_lightgbm_tuning/lightgbm_tuned"].to_numpy()
+    table["submission"] = np.where(np.isfinite(table.persistence), w * table.persistence + (1 - w) * hybrid, hybrid)
     return table
 
 
@@ -176,7 +193,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
-    table = add_hybrids(reference()).sort_values(["origin_utc", "horizon"]).reset_index(drop=True)
+    table = add_submission(add_hybrids(reference()).sort_values(["origin_utc", "horizon"]).reset_index(drop=True))
     origins = list(table.origin_utc.drop_duplicates())
     with Pool(min(args.workers, len(NETWORKS))) as pool:
         for name, values in pool.starmap(network_forecasts, [(n, origins) for n in NETWORKS]):
@@ -187,7 +204,7 @@ def main(argv=None):
         table[name] = np.concatenate([p[name] for p in prophet])
     table.to_parquet(args.output_dir / "predictions.parquet", index=False)
 
-    labels = {**HYBRIDS, **NETWORKS, **PROPHETS, **BASELINES}
+    labels = {**SUBMISSION, **HYBRIDS, **NETWORKS, **PROPHETS, **BASELINES}
     result, common = score(table, list(labels))
     for i, key in enumerate(("model", "family", "training")):
         result[key] = result.column.map(lambda c: labels[c][i])
