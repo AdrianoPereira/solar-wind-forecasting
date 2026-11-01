@@ -23,7 +23,8 @@ import time
 import numpy as np
 import pandas as pd
 
-from .validation import regression_metrics, timse, timse_weights
+# Metrics are imported where they are used, so inference (build_pairs and predict) needs only
+# numpy, pandas and the boosting library; the submission container relies on this.
 
 ROTATION_HOURS = 27 * 24
 CH_THRESHOLDS = (25, 35)
@@ -86,10 +87,13 @@ def build_pairs(plasma, coronal_holes, origins, config):
     cutoff = origins - pd.Timedelta(hours=config.latency_hours)
     at = lambda series, times: series.reindex(times).to_numpy(dtype=float)
 
-    valid_time = pd.Series(np.where(speed.notna(), speed.index.asi8, np.nan), index=speed.index).ffill()
+    hours = lambda index: (index - pd.Timestamp("2000-01-01", tz="UTC")) / pd.Timedelta(hours=1)
+    valid_time = pd.Series(np.where(speed.notna(), hours(speed.index), np.nan), index=speed.index).ffill()
     state = {
         "last_speed": at(speed.ffill(), cutoff),
-        "last_age_h": (cutoff.asi8 - at(valid_time, cutoff)) / 3.6e12,
+        # Age of the latest valid speed in thousands of hours: the scale the saved models were
+        # trained on (pandas' microsecond timestamps divided by nanoseconds per hour).
+        "last_age_h": (np.asarray(hours(cutoff)) - at(valid_time, cutoff)) / 1000,
         "mean_6h": at(speed.rolling(6, min_periods=2).mean(), cutoff),
         "mean_24h": at(speed.rolling(24, min_periods=6).mean(), cutoff),
         "mean_72h": at(speed.rolling(72, min_periods=12).mean(), cutoff),
@@ -226,6 +230,8 @@ class HybridForecaster:
         return model.predict(features, iteration_range=(0, iterations))
 
     def _weights(self, y):
+        from .validation import timse_weights
+
         if self.config.weighting == "mse":
             return np.ones(len(y))
         if self.config.weighting == "timse":
@@ -242,6 +248,8 @@ class HybridForecaster:
         predict with N.
         The scikit-learn model is refit with the selected number of trees.
         """
+        from .validation import regression_metrics, timse
+
         train = train[train.y.notna()]
         validation = validation[validation.y.notna()]
         self.features = feature_columns(train)
@@ -296,6 +304,8 @@ def origins_between(start, end, step_hours=6):
 
 def score(frame, predictions):
     """TIMSE, RMSE and lead-time RMSE of each model on the pairs with an observed target."""
+    from .validation import regression_metrics, timse
+
     observed = frame.y.notna().to_numpy()
     y = frame.y.to_numpy()[observed]
     results = {}
@@ -338,6 +348,8 @@ def search_configs(trials, seed, threads, model="lightgbm"):
 
 def tune(plasma, coronal_holes, splits, args):
     """Random search on validation RMSE; the test is scored once, for the winner only."""
+    from .validation import regression_metrics, timse
+
     output = args.output_dir
     log = output / "trials.jsonl"
     done = {}
