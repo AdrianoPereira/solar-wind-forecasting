@@ -1,0 +1,50 @@
+[project]
+name = "benchlab"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "dask[distributed]>=2026.8.0",
+    "pyarrow>=15,<24",
+]
+
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/benchlab_forecasting"]
+
+[project.optional-dependencies]
+forecast = ["prophet>=1.1.6,<2", "pandas>=2.2,<4", "numpy>=1.26,<3"]
+lstm = ["torch>=2.9,<3", "pandas>=2.2,<4", "numpy>=1.26,<3"]
+hpo = [
+    "optuna>=5.0.0",
+]
+hybrid = ["scikit-learn>=1.5", "pandas>=2.2,<4", "numpy>=1.26,<3"]
+boosting = ["lightgbm>=4.5", "xgboost-cpu>=3.0", "catboost>=1.2", "ngboost>=0.5"]
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[project.scripts]
+benchlab-forecast = "benchlab_forecasting.cli:main"
+
+[dependency-groups]
+images = [
+    "astropy>=8.0.1",
+]
+notebooks = [
+    "ipykernel>=7.3.0",
+    "jupyterlab>=4.6.4",
+    "matplotlib>=3.11.2",
+    "nbclient>=0.11.0",
+    "pandas>=3.0.6",
+    "scikit-learn>=1.9.1",
+    "scipy>=1.17.1",
+    "statsmodels>=0.15.0",
+]

@@ -1,0 +1,23 @@
+# Ambiente e caches
+.venv/
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.dask-worker-space/
+dask-worker-space/
+node_modules/
+
+# Dados, modelos e resultados (dezenas de GB; gerados pelos scripts)
+data/
+
+# Kit oficial do torneio: repositório próprio, com o token da equipe em .team
+benchlab-starter-kit/
+.team
+
+# Captura de tela de slide da organização
+IMG_1046.PNG
+
+# Configurações locais de agentes
+.agents/
+.codex/
+.claude/

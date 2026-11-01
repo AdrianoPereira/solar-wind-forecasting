@@ -1,0 +1,3 @@
+# Instalação reproduzível recomendada: uv sync --locked
+pyarrow>=15,<24
+dask[distributed]
