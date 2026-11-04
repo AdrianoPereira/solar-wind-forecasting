@@ -50,6 +50,11 @@ em numpy em `src/benchlab_forecasting/som.py`; os testes estão em `tests/test_s
 
 ## Os mapas
 
+Em cada painel, a linha preta é o protótipo do neurônio. As linhas finas e transparentes
+são até 60 janelas de treino (sorteadas) que caem nele, e o percentual é a fração das
+emissões de 2011–2021 no neurônio. Para gerar sem as janelas, use `--no-members` no
+`scripts/plot_som.py`.
+
 ![Mapa A](figures/som_past_map.png)
 
 ![Mapa B](figures/som_future_map.png)
@@ -63,6 +68,12 @@ em numpy em `src/benchlab_forecasting/som.py`; os testes estão em `tests/test_s
 - **Mapa B:** a validação preferiu 4×4. Os cenários são suaves: subir, descer, estável e
   subir tarde. Mapas maiores (6×6, 8×8) têm protótipos mais nítidos, mas pioram o RMSE de
   validação.
+- **O espalhamento conta a história:**
+  - No mapa A, as janelas ficam justas em torno de cada protótipo.
+  - No mapa B, os futuros de um mesmo neurônio se espalham muito mais. No cenário "subir"
+    (8,2% das emissões), as séries vão de quase nada até +300 km/s, com a subida em
+    horários diferentes.
+  - É a mesma conclusão da informação mútua: o passado não fixa a forma do futuro.
 - **Ligação:**
   - depois de uma subida forte (nó 90 de A), 45% da probabilidade vai para "descer" (o
     fim de uma corrente rápida);
