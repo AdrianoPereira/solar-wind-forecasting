@@ -249,6 +249,10 @@ benchmark above). Documentation for each (in Portuguese):
   [LSTM with attention, Transformer and Patch Transformer](docs/attention_models.md).
 - [Temporal validation](docs/validation.md), [TIMSE with figures](docs/timse.md) and
   [result plots](docs/plotting.md).
+- [Two linked SOMs as post-processing](docs/som.md): one map learns the shapes of the last
+  72 h of solar wind, another the shapes of the next 72 h, and their link adjusts the
+  model's forecast. This brought no gain on the test (+0.03 km/s, 95% CI −0.07 to +0.14),
+  because the past speed carries only ~6% of the information about the future shape.
 
 ### Future work
 
