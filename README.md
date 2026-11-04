@@ -26,25 +26,23 @@ training or selection.
 
 | Model | Family | Trained on | RMSE (km/s) | 1–24 h | 25–48 h | 49–72 h | Skill vs persistence | TIMSE pooled (M) | TIMSE median per issuance (k) |
 | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| **Hybrid · LightGBM, tuned** | Hybrid boosting | 2011–2021 | **75.3** | 57.3 | 78.7 | 86.7 | +23.1% | 74.6 | 358 |
+| **Submission · tuned LightGBM + persistence blend** | Hybrid boosting | 2011–2021 | **74.4** | 53.7 | 78.5 | 87.0 | +23.9% | 70.6 | 326 |
+| Hybrid · LightGBM, tuned | Hybrid boosting | 2011–2021 | 75.3 | 57.3 | 78.7 | 86.7 | +23.1% | 74.6 | 358 |
 | Hybrid · XGBoost | Hybrid boosting | 2011–2021 | 75.7 | 56.7 | 79.5 | 87.6 | +22.6% | 72.2 | 369 |
 | Hybrid · scikit-learn HGB | Hybrid boosting | 2011–2021 | 76.0 | 57.0 | 79.7 | 87.9 | +22.3% | 74.4 | 375 |
 | Hybrid · LightGBM | Hybrid boosting | 2011–2021 | 76.3 | 56.9 | 80.1 | 88.4 | +22.0% | 75.2 | 372 |
 | Hybrid · CatBoost | Hybrid boosting | 2011–2021 | 76.4 | 57.7 | 79.9 | 88.3 | +21.9% | 72.2 | 380 |
 | Hybrid · NGBoost | Hybrid boosting | 2011–2021 | 77.5 | 57.7 | 81.2 | 90.0 | +20.7% | 77.4 | 386 |
+| Patch Transformer | Neural network | 2011–2021 | 78.4 | 55.1 | 81.9 | 93.3 | +19.9% | 71.5 | 325 |
 | Hybrid · LightGBM, tuned, no coronal holes | Hybrid boosting | 2011–2021 | 78.6 | 58.0 | 82.4 | 91.7 | +19.6% | 81.7 | 343 |
-| LSTM | Neural network | 2019 | 86.5 | 56.2 | 89.5 | 106.2 | +11.6% | 73.8 | 384 |
-| GRU | Neural network | 2019 | 86.6 | 55.7 | 89.3 | 106.8 | +11.5% | 73.5 | 392 |
-| Transformer | Neural network | 2003–2009 | 88.3 | 60.6 | 90.7 | 107.3 | +9.7% | 62.6 | 445 |
-| Transformer | Neural network | 2019 | 89.1 | 62.4 | 90.8 | 108.1 | +8.9% | 78.6 | 506 |
-| Patch Transformer | Neural network | 2019 | 91.6 | 70.7 | 93.0 | 107.3 | +6.4% | 77.4 | 526 |
+| GRU | Neural network | 2011–2021 | 80.2 | 53.5 | 83.3 | 97.3 | +18.1% | 74.8 | 315 |
+| LSTM | Neural network | 2011–2021 | 80.7 | 53.9 | 83.9 | 98.0 | +17.5% | 75.5 | 318 |
+| Transformer | Neural network | 2011–2021 | 81.3 | 55.8 | 84.7 | 97.7 | +16.9% | 76.6 | 326 |
+| GRU with attention | Neural network | 2011–2021 | 83.0 | 57.2 | 86.0 | 100.0 | +15.2% | 80.1 | 370 |
+| LSTM with attention | Neural network | 2011–2021 | 84.0 | 57.8 | 87.0 | 101.2 | +14.2% | 76.2 | 378 |
 | Prophet, tuned (plasma regressors) | Statistical | 180 days before each issuance | 93.0 | 91.3 | 93.4 | 94.2 | +5.0% | 74.2 | 712 |
 | Prophet | Statistical | 180 days before each issuance | 96.8 | 96.5 | 96.9 | 97.1 | +1.0% | 105.9 | 640 |
-| GRU with attention | Neural network | 2003–2009 | 96.9 | 71.0 | 99.8 | 114.8 | +0.9% | 64.0 | 552 |
 | Persistence | Baseline | — | 97.8 | 60.2 | 100.8 | 122.2 | +0.0% | 64.0 | 556 |
-| GRU with attention | Neural network | 2019 | 104.8 | 78.6 | 109.3 | 121.9 | -7.2% | 85.9 | 953 |
-| LSTM with attention | Neural network | 2019 | 105.4 | 79.8 | 108.3 | 123.4 | -7.7% | 92.1 | 953 |
-| Patch Transformer | Neural network | 2003–2009 | 106.3 | 80.9 | 109.7 | 123.8 | -8.7% | 50.1 | 695 |
 | 27-day recurrence | Baseline | — | 107.8 | 106.5 | 108.0 | 108.8 | -10.2% | 59.9 | 928 |
 | Hybrid · XGBoost, TIMSE weights | Hybrid boosting | 2011–2021 | 108.8 | 90.7 | 112.6 | 120.9 | -11.2% | 49.2 | 729 |
 
@@ -52,33 +50,56 @@ Lead-time columns are RMSE in km/s. Skill is the RMSE reduction against persiste
 
 ![RMSE by lead time of the best model of each family](docs/figures/benchmark_rmse_by_lead.png)
 
-- The tuned LightGBM hybrid has the lowest RMSE: 23% below persistence overall and 30%
-  below at 72 h (91 vs 129 km/s).
-- In the first day the simple models are hard to beat. Persistence wins during the first
-  ~10 h, and the LSTM and GRU are slightly better than the hybrid over 1–24 h
-  (56 vs 57 km/s). After ~24 h the hybrid leads at every lead.
+- The submitted forecast (tuned LightGBM hybrid blended with persistence) has the lowest
+  RMSE, 74.4 km/s: 24% below persistence. The blend mostly helps the first day
+  (57.3 → 53.7 km/s over 1–24 h).
+- The neural networks retrained on the hybrid's splits are close in the first day: the
+  GRU (53.5 km/s) matches the submission over 1–24 h. They fall behind at long leads
+  (93–101 km/s at 49–72 h, against 87), where the coronal-hole features matter. The
+  Patch Transformer, whose 30-day input reaches the 27-day recurrence, is the best
+  network (78.4 km/s).
 - All five boosting libraries land within 2 km/s of each other. The coronal-hole
   features are worth 3.4 km/s overall (95% CI 1.4–5.5) and 5.5 km/s at 72 h.
-- Prophet is flat across leads: weak early, but better than every neural network at
-  49–72 h.
+- Prophet is flat across leads: weak early, close to the networks at 49–72 h.
 - **A caveat on TIMSE:** pooled over the whole period, it rewards forecasts biased
-  upwards. That is why the TIMSE-weighted hybrid and the 2003–2009 Patch Transformer
-  have the best pooled TIMSE with some of the worst RMSEs, and why a constant 700 km/s
-  (42.1 M) beats every model. Scored per issuance (last column), the bias stops paying.
-  How the organizers aggregate TIMSE is still to be confirmed.
+  upwards. That is why the TIMSE-weighted hybrid has the best pooled TIMSE with the worst
+  RMSE, and why a constant 700 km/s (42.1 M) beats every model. Scored per issuance (last
+  column), the bias stops paying. How the organizers aggregate TIMSE is still to be
+  confirmed.
 
 How to read the comparison:
 
-- **Training data differs.** The hybrids were trained on 2011–2021. The neural networks
-  are the saved checkpoints of earlier experiments, trained on 2019 or on 2003–2009
-  (validation 2008–2009), and were not retrained here. Retraining them on 2011–2021
-  would make the comparison stricter.
+- **Same training period.** Hybrids and networks were trained on 2011–2021 and selected
+  on 2022 to 2023. The networks' validation stops on 9 Nov 2023, because their code
+  refuses to skip the issuance left without data by an ACE gap on 10 Nov 2023
+  (`scripts/slurm/train_networks.sbatch`). Their hyperparameters are those of the
+  earlier 2019 experiments and were not tuned again.
 - **Inputs.** Neural networks and Prophet read the real-time ACE product, as they would
   in operations. The hybrids read Level 2 where available (until July 2024) and the
   real-time product afterwards. Using the real-time product alone changes the hybrid's
   RMSE from 76.0 to 76.2 km/s.
 - Prophet is refit at every issuance on the previous 180 days, with the configuration
   selected in [docs/tuning.md](docs/tuning.md).
+
+<details>
+<summary>Earlier network checkpoints, trained on 2019 or 2003–2009 only</summary>
+
+| Model | Family | Trained on | RMSE (km/s) | 1–24 h | 25–48 h | 49–72 h | Skill vs persistence | TIMSE pooled (M) | TIMSE median per issuance (k) |
+| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| LSTM | Neural network | 2019 | 86.5 | 56.2 | 89.5 | 106.2 | +11.6% | 73.8 | 384 |
+| GRU | Neural network | 2019 | 86.6 | 55.7 | 89.3 | 106.8 | +11.5% | 73.5 | 392 |
+| Transformer | Neural network | 2003–2009 | 88.3 | 60.6 | 90.7 | 107.3 | +9.7% | 62.6 | 445 |
+| Transformer | Neural network | 2019 | 89.1 | 62.4 | 90.8 | 108.1 | +8.9% | 78.6 | 506 |
+| Patch Transformer | Neural network | 2019 | 91.6 | 70.7 | 93.0 | 107.3 | +6.4% | 77.4 | 526 |
+| GRU with attention | Neural network | 2003–2009 | 96.9 | 71.0 | 99.8 | 114.8 | +0.9% | 64.0 | 552 |
+| GRU with attention | Neural network | 2019 | 104.8 | 78.6 | 109.3 | 121.9 | -7.2% | 85.9 | 953 |
+| LSTM with attention | Neural network | 2019 | 105.4 | 79.8 | 108.3 | 123.4 | -7.7% | 92.1 | 953 |
+| Patch Transformer | Neural network | 2003–2009 | 106.3 | 80.9 | 109.7 | 123.8 | -8.7% | 50.1 | 695 |
+
+With less training data they are 6 to 28 km/s worse than the same architectures
+retrained on 2011–2021.
+
+</details>
 
 To reproduce, run `scripts/benchmark_all_models.py` (about 10 min on 8 cores) and then
 `scripts/plot_benchmark.py`. Results go to `data/experiments/benchmark_2024_2026/`.
