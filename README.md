@@ -229,6 +229,14 @@ benchmark above). Documentation for each (in Portuguese):
 - [Temporal validation](docs/validation.md), [TIMSE with figures](docs/timse.md) and
   [result plots](docs/plotting.md).
 
+### Future work
+
+- [Physics-informed model](docs/physics_informed_model.md) (proposal, not implemented). It
+  would map coronal-hole areas to a solar-source speed and propagate it to L1 with a
+  differentiable HUX solver, then use the result as an extra feature for the booster. The
+  page explains why this beats a plain PINN here, and gives the expected gain (1–3 km/s at
+  long leads) and the criteria for adopting it.
+
 ## Tournament submission
 
 `submission/` holds the Benchlab container: the tuned LightGBM hybrid blended with
