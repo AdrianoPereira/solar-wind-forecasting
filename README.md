@@ -253,6 +253,9 @@ benchmark above). Documentation for each (in Portuguese):
   72 h of solar wind, another the shapes of the next 72 h, and their link adjusts the
   model's forecast. This brought no gain on the test (+0.03 km/s, 95% CI −0.07 to +0.14),
   because the past speed carries only ~6% of the information about the future shape.
+  Scenarios built from real training series instead of averages raise the peaks a little
+  but cost RMSE. As an ensemble they lose to the model plus real validation errors (CRPS
+  47.6 vs 38.2).
 
 ### Future work
 

@@ -120,6 +120,68 @@ Nas 218 emissões de teste em que o vento sobe pelo menos 100 km/s em 72 h:
   previsão do observado: RMSE de 130 contra 155 da base. Mas é um evento transiente; no
   conjunto, o efeito se anula.
 
+## Cenários sem média: medoides e séries reais sorteadas
+
+Os protótipos são médias, e o cenário era uma média ponderada de protótipos. Médias de
+trajetórias com o pico em horários diferentes viram rampas, então a versão acima não
+tinha como devolver picos. Este segundo experimento, de 04/11/2026, usa os mesmos mapas,
+a mesma ligação e o mesmo σ, mas monta o cenário só com **séries reais do treino**:
+
+- **Medoide:** a série de treino mais próxima do protótipo, no neurônio mais provável. O
+  neurônio é escolhido de duas formas: por `w_j` (guiado pelo modelo) ou só por
+  `P(j|i)`. O cenário é usado puro (α = 0) ou misturado ao modelo, com α escolhido na
+  validação.
+- **Sorteio:** 50 séries reais por emissão. Primeiro se sorteia o neurônio com
+  probabilidade `w_j`, depois um membro dele. O resultado é um conjunto de trajetórias
+  reais, avaliado por CRPS e membro a membro.
+
+```bash
+.venv/bin/python -m benchlab_forecasting.som sharp --source data/experiments/som_2011_2026 \
+  --output-dir data/experiments/som_sharp_2011_2026
+.venv/bin/python scripts/plot_som_sharp.py --experiment data/experiments/som_sharp_2011_2026
+```
+
+**Previsões únicas.** Teste 2024–2026; "subidas" são as 218 emissões em que o vento sobe
+pelo menos 100 km/s em 72 h.
+
+| Previsão | RMSE | Ganho vs base (IC 95%) | Viés do pico nas subidas | Erro do horário do pico | TIMSE mediano por emissão |
+| --- | ---: | --- | ---: | ---: | ---: |
+| Base: submissão | 74,4 | — | −134 km/s | 23,2 h | 326 mil |
+| Medoide, guiado pelo modelo, α = 0 | 75,2 | −0,83 [−1,42; −0,32] | −129 km/s | **19,9 h** | 341 mil |
+| Medoide, guiado, α na validação (0,8 → 0,9) | 74,4 | +0,03 [−0,03; +0,10] | −135 km/s | 22,8 h | 326 mil |
+| Medoide, só `P(j\|i)`, α = 0 | 91,8 | −17,4 [−24,5; −9,9] | −79 km/s | 27,5 h | 550 mil |
+
+**Conjuntos de 50 séries por emissão.** A coluna "membros" traz as métricas de um membro
+qualquer, em média.
+
+| Conjunto | CRPS | RMSE da média | RMSE dos membros | Viés do pico (membros) | Erro do horário (membros) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Séries reais, guiado pelo modelo | 47,6 | 74,9 | 77,4 | −94 km/s | 23,2 h |
+| Séries reais, só `P(j\|i)` | 49,0 | 78,3 | 91,3 | −100 km/s | 28,0 h |
+| **Referência justa:** modelo + trajetórias de erro reais da validação | **38,2** | — | 99,9 | −69 km/s | 23,2 h |
+
+A previsão única do modelo tem CRPS igual ao seu MAE (50,8). Qualquer conjunto com alguma
+dispersão ganha dela, por isso a comparação justa é com a referência acima: a previsão do
+modelo somada a 50 trajetórias de erro sorteadas entre as 2.529 emissões completas de
+2022–2023.
+
+![Casos de subida com cenários de séries reais](figures/som_sharp_cases.png)
+
+**Leitura:**
+
+- **Sem média, os picos ficam mais altos, mas o erro cresce.** O medoide puro reduz pouco o
+  viés do pico (−134 → −129 km/s) e piora o RMSE em 0,8 km/s. As séries sorteadas chegam a
+  −94 km/s de viés, mas cada uma tem RMSE de 77 km/s.
+- **O único sinal novo é o horário.** O medoide guiado pelo modelo erra o horário do pico
+  em 19,9 h, contra 23,2 h da base. Esse ganho de ~3 h não teve intervalo de confiança
+  calculado e vem junto com um RMSE pior.
+- **Como conjunto probabilístico, o SOM perde para o simples:** CRPS de 47,6 contra 38,2 do
+  modelo com erros reais. Os cenários do SOM ficam presos perto da previsão do modelo e não
+  cobrem as subidas fortes. No caso de 23/03/2024, nenhuma das 50 séries chega perto do
+  observado.
+- **Com recorrência no mapa A** (`som_sharp_recurrence_2011_2026`), os resultados são
+  praticamente iguais.
+
 ## Se for retomar
 
 - **Entradas que carreguem o horário das subidas:**

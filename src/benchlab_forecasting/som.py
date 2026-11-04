@@ -420,6 +420,157 @@ def experiment(args):
     return 0
 
 
+# ---------------------------------------------------------------- sharp scenarios (no averaging)
+
+def medoids(prototypes, members, assigned):
+    """For each node, the real member series closest to its prototype (index into `members`)."""
+    result = np.full(len(prototypes), -1)
+    for node in range(len(prototypes)):
+        inside = np.flatnonzero(assigned == node)
+        if len(inside):
+            d2 = ((members[inside] - prototypes[node]) ** 2).sum(1)
+            result[node] = inside[d2.argmin()]
+    return result
+
+
+def crps_ensemble(y, ensemble):
+    """Mean CRPS of an ensemble (issuances × members × hours) against y (issuances × hours)."""
+    mask = np.isfinite(y)
+    term1 = np.abs(ensemble - y[:, None, :]).mean(1)
+    sorted_members = np.sort(ensemble, 1)
+    m = ensemble.shape[1]
+    # E|X − X'| from sorted members: Σ (2k − m − 1) x_(k) · 2 / m².
+    k = np.arange(1, m + 1)[None, :, None]
+    term2 = (2 * (2 * k - m - 1) * sorted_members).sum(1) / m ** 2
+    return float((term1 - 0.5 * term2)[mask].mean())
+
+
+def timse_by_issuance(y, p):
+    from .validation import timse
+
+    values = [timse(yy[np.isfinite(yy)], pp[np.isfinite(yy)]) for yy, pp in zip(y, p)
+              if np.isfinite(yy).sum() >= 2 and np.isfinite(pp[np.isfinite(yy)]).all()]
+    return float(np.median([v for v in values if v is not None]))
+
+
+def sharp(args):
+    """Scenarios made of real training series instead of averages, on the maps of an earlier run."""
+    from .hybrid import load_plasma, origins_between
+
+    start = time.monotonic()
+    source = args.source
+    report = json.loads((source / "report.json").read_text())
+    saved = np.load(source / "maps.npz")
+    choice = report["choice"]
+    with_recurrence = "recurrence" in report["config"]["past_input"]
+    output = args.output_dir
+    output.mkdir(parents=True, exist_ok=True)
+    plasma = load_plasma(args.level2, args.operational)
+    speed = plasma.speed_km_s
+    holes = pd.read_parquet(args.coronal_holes)
+    holes = holes[holes.error.isna()].copy()
+    holes["origin_utc"] = pd.to_datetime(holes.origin_utc, utc=True)
+    splits = {k: origins_between(v[0][:19], v[1][:19]) for k, v in report["config"]["splits"].items()}
+
+    maps = []
+    for name in ("past", "future"):
+        side = int(saved[f"{name}_grid"][:, 0].max()) + 1
+        som = SOM(SOMConfig(side, side))
+        som.prototypes = saved[name]
+        maps.append(som)
+    past_map, future_map = maps
+    link, sigma = saved["link"], float(saved["sigma"])
+
+    data = {}
+    for name, origins in splits.items():
+        past, last, ok = past_windows(speed, origins)
+        if with_recurrence:
+            past = np.hstack([past, recurrence_windows(speed, origins, last)])
+        future, ok_future = future_windows(speed, origins, last)
+        data[name] = {"origins": origins, "past": past, "last": last, "ok": ok, "future": future,
+                      "ok_future": ok_future}
+    for name in ("validation", "test"):
+        data[name]["forecast"], data[name]["y"] = base_forecasts(plasma, holes, splits[name], args.model_dir)
+
+    # Real training futures of each map-B node, and the member closest to each prototype.
+    train = data["train"]
+    usable = train["ok"] & train["ok_future"]
+    members = train["future"][usable]
+    member_nodes = future_map.bmu(members)
+    medoid = medoids(future_map.prototypes, members, member_nodes)
+    by_node = [np.flatnonzero(member_nodes == j) for j in range(future_map.nodes)]
+
+    def node_weights(d, guided):
+        nodes = past_map.bmu(np.where(d["ok"][:, None], d["past"], 0))
+        return scenario_weights(link, nodes, d["forecast"] - d["last"][:, None], future_map.prototypes,
+                                sigma if guided else np.inf)
+
+    def medoid_scenario(d, guided):
+        best = node_weights(d, guided).argmax(1)
+        return d["last"][:, None] + members[medoid[best]]
+
+    def sampled(d, guided, size, seed):
+        rng = np.random.default_rng(seed)
+        w = node_weights(d, guided)
+        cumulative = np.cumsum(w, 1)
+        draws = np.empty((len(w), size, HORIZON))
+        for i in range(len(w)):
+            nodes = np.minimum(np.searchsorted(cumulative[i], rng.random(size)), future_map.nodes - 1)
+            picks = [by_node[j][rng.integers(len(by_node[j]))] for j in nodes]
+            draws[i] = d["last"][i] + members[picks]
+        return draws
+
+    alphas = [(a, b) for a in np.linspace(0, 1, 11) for b in np.linspace(0, 1, 11)]
+    val, test = data["validation"], data["test"]
+    keep = lambda d, values: np.where(d["ok"][:, None] & np.isfinite(values), values, d["forecast"])
+
+    variants, choices = {"base (submission)": test["forecast"]}, {}
+    for guided, label in ((True, "model-guided"), (False, "SOM only")):
+        scen_val, scen_test = medoid_scenario(val, guided), medoid_scenario(test, guided)
+        variants[f"medoid, {label}, α = 0 (pure real series)"] = keep(test, scen_test)
+        best = min(alphas, key=lambda ab: rmse(val["y"], keep(val, alpha_curve(*ab) * val["forecast"]
+                                                               + (1 - alpha_curve(*ab)) * scen_val)))
+        choices[f"medoid, {label}, α on validation"] = {"alpha_first": best[0], "alpha_last": best[1]}
+        a = alpha_curve(*best)
+        variants[f"medoid, {label}, α on validation"] = keep(test, a * test["forecast"] + (1 - a) * scen_test)
+
+    ensembles = {label: sampled(test, guided, args.members, args.seed)
+                 for guided, label in ((True, "model-guided"), (False, "SOM only"))}
+
+    result = {"source": str(source), "choice_of_source": choice, "alpha_choices": choices,
+              "members_per_issuance": args.members, "test": {}, "test_gain_vs_base": {}, "ensembles": {}}
+    for name, values in variants.items():
+        result["test"][name] = {**evaluate(test["y"], values, test["last"]),
+                                "timse_median_per_issuance": timse_by_issuance(test["y"], values)}
+        if name != "base (submission)":
+            result["test_gain_vs_base"][name] = block_bootstrap_gain(test["origins"], test["y"],
+                                                                     test["forecast"], values)
+    base_mae = float(np.nanmean(np.abs(test["y"] - test["forecast"])))
+    for label, draws in ensembles.items():
+        draws = np.where(test["ok"][:, None, None], draws, test["forecast"][:, None, :])
+        members_eval = [evaluate(test["y"], draws[:, k], test["last"]) for k in range(min(10, args.members))]
+        rises = [m["rises_100"] for m in members_eval]
+        result["ensembles"][f"sampled real series, {label}"] = {
+            "crps": crps_ensemble(test["y"], draws), "crps_of_base_forecast (= MAE)": base_mae,
+            "ensemble_mean_rmse": rmse(test["y"], draws.mean(1)),
+            "single_member_rmse_mean": float(np.mean([m["rmse"] for m in members_eval])),
+            "single_member_rises": {k: float(np.mean([r[k] for r in rises])) for k in rises[0] if k != "issuances"},
+            "single_member_timse_median_per_issuance": float(np.mean(
+                [timse_by_issuance(test["y"], draws[:, k]) for k in range(3)]))}
+    np.savez_compressed(output / "scenarios.npz", medoid=medoid, members=members, member_nodes=member_nodes,
+                        **{k.replace(" ", "_").replace(",", "").replace("=", "").replace("(", "").replace(")", ""): v
+                           for k, v in variants.items()})
+    np.savez_compressed(output / "ensembles.npz", **{k.replace(" ", "_").replace("-", "_"): v
+                                                     for k, v in ensembles.items()},
+                        y=test["y"], forecast=test["forecast"], last=test["last"],
+                        origins=test["origins"].as_unit("ns").asi8)
+    result["seconds"] = time.monotonic() - start
+    (output / "report.json").write_text(json.dumps(result, indent=2, default=float), encoding="utf-8")
+    print(json.dumps({k: result[k] for k in ("alpha_choices", "test", "test_gain_vs_base", "ensembles")},
+                     indent=2, default=float))
+    return 0
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -437,8 +588,18 @@ def main(argv=None):
                      help="Map A also sees the speed 27 days before each of the next 72 hours")
     run.add_argument("--seed", type=int, default=0)
     run.add_argument("--output-dir", type=Path, required=True)
+    sharp_run = sub.add_parser("sharp", help="Real-series scenarios (medoids, sampled members) on saved maps")
+    sharp_run.add_argument("--source", type=Path, default=Path("data/experiments/som_2011_2026"))
+    sharp_run.add_argument("--level2", type=Path, default=Path("data/ace_level2/ac_h2_swe_hourly.parquet"))
+    sharp_run.add_argument("--operational", type=Path,
+                           default=Path("data/ace_hourly_2011_2026/ace_swepam_hourly.parquet"))
+    sharp_run.add_argument("--coronal-holes", type=Path, default=Path("data/features/coronal_holes_0193_6h.parquet"))
+    sharp_run.add_argument("--model-dir", type=Path, default=Path("submission/model"))
+    sharp_run.add_argument("--members", type=int, default=50, help="Sampled real series per issuance")
+    sharp_run.add_argument("--seed", type=int, default=0)
+    sharp_run.add_argument("--output-dir", type=Path, required=True)
     args = parser.parse_args(argv)
-    return experiment(args)
+    return sharp(args) if args.command == "sharp" else experiment(args)
 
 
 if __name__ == "__main__":

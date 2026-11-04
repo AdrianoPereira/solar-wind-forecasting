@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 
 from benchlab_forecasting.som import (
-    SOM, SOMConfig, alpha_curve, block_bootstrap_gain, future_windows, link_matrix, mutual_information,
+    SOM, SOMConfig, alpha_curve, block_bootstrap_gain, crps_ensemble, medoids, future_windows, link_matrix, mutual_information,
     past_windows, post_process, recurrence_windows, scenario_weights,
 )
 
@@ -77,6 +77,18 @@ class SOMTest(unittest.TestCase):
         changed.iloc[1499:] = 0  # everything from the cut-off t0 − 1 h on
         np.testing.assert_allclose(recurrence_windows(changed, origin, last), window)
         self.assertEqual(window.shape, (1, 72))
+
+    def test_medoids_are_real_members_and_crps_matches_mae_for_one_member(self):
+        members = np.array([[0.0, 0], [10, 10], [11, 9], [100, 100]])
+        prototypes = np.array([[10.5, 9.5], [90.0, 90]])
+        assigned = np.array([0, 0, 0, 1])
+        np.testing.assert_array_equal(medoids(prototypes, members, assigned), [1, 3])
+        y = np.array([[1.0, 2, 3]])
+        one = np.array([[[2.0, 2, 5]]])
+        self.assertAlmostEqual(crps_ensemble(y, one), np.mean(np.abs(one[0, 0] - y[0])))
+        # A wider ensemble centred on the truth scores better than a single offset member.
+        spread = np.array([[[0.0, 1, 2], [2.0, 3, 4]]])
+        self.assertLess(crps_ensemble(y, spread), crps_ensemble(y, one))
 
     def test_gaps_mark_windows_unusable(self):
         index = pd.date_range("2020-01-01", periods=400, freq="h", tz="UTC")
