@@ -255,7 +255,8 @@ benchmark above). Documentation for each (in Portuguese):
   because the past speed carries only ~6% of the information about the future shape.
   Scenarios built from real training series instead of averages raise the peaks a little
   but cost RMSE. As an ensemble they lose to the model plus real validation errors (CRPS
-  47.6 vs 38.2).
+  47.6 vs 38.2). Adding the coronal holes and the speed level to the input map doesn't
+  change this: the booster already uses that information better.
 
 ### Future work
 

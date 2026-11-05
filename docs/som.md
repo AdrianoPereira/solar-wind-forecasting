@@ -182,11 +182,80 @@ modelo somada a 50 trajetórias de erro sorteadas entre as 2.529 emissões compl
 - **Com recorrência no mapa A** (`som_sharp_recurrence_2011_2026`), os resultados são
   praticamente iguais.
 
+## Retomada: buracos coronais e nível no mapa A
+
+Também em 04/11/2026. O mapa A passou a receber mais blocos, além da forma das 72 h:
+
+- **Buracos coronais:** as frações das imagens de 0, 24 e 48 h, com 2 limiares × 6 faixas
+  de longitude × 3 imagens (36 valores), padronizadas.
+- **Nível:** o último valor da velocidade, padronizado.
+
+Cada bloco é escalado para ter, com peso 1, a mesma variância total da forma do vento. Os
+pesos (0,5, 1 ou 2) foram escolhidos na validação, junto com os tamanhos dos mapas, σ e α.
+A imagem ausente conta como média.
+
+```bash
+.venv/bin/python -m benchlab_forecasting.som experiment --with-coronal-holes --output-dir data/experiments/som_ch_2011_2026
+.venv/bin/python -m benchlab_forecasting.som experiment --with-level --output-dir data/experiments/som_level_2011_2026
+.venv/bin/python -m benchlab_forecasting.som experiment --with-level --with-coronal-holes \
+  --output-dir data/experiments/som_level_ch_2011_2026
+.venv/bin/python -m benchlab_forecasting.som sharp --source data/experiments/som_level_ch_2011_2026 \
+  --output-dir data/experiments/som_sharp_level_ch_2011_2026
+```
+
+| Mapa A | Informação mútua (treino / teste) | RMSE, SOM guiado | Ganho vs base (IC 95%) | RMSE, SOM sozinho |
+| --- | --- | ---: | --- | ---: |
+| Forma (o original) | 5,6% / 5,9% | 74,39 | +0,03 [−0,07; +0,14] | 78,2 |
+| Forma + buracos coronais | 6,1% / 9,1% | 74,40 | +0,02 [−0,08; +0,14] | 78,4 |
+| Forma + buracos + recorrência | 8,5% / 4,7% | 74,48 | −0,07 [−0,28; +0,14] | 77,5 |
+| Forma + nível | **11,5% / 10,4%** | 74,39 | +0,02 [−0,07; +0,13] | **77,2** |
+| Forma + nível + buracos | 7,8% / 3,6% | 74,42 | 0,00 [−0,19; +0,19] | 77,2 |
+
+A informação mútua é medida como fração da entropia da forma futura, já descontada a de
+pares embaralhados. A base, a previsão submetida, tem RMSE de 74,42.
+
+**Cenários de séries reais com nível + buracos coronais:**
+
+- O medoide puro piora tudo: RMSE de 93,3 e erro de horário do pico de 27,5 h, contra
+  23,2 h da base.
+- Com α escolhido na validação, o resultado é igual à base.
+- O conjunto sorteado tem CRPS de 48,7, contra 38,2 da referência (modelo + erros reais).
+
+### Diagnóstico: onde está a informação
+
+Para separar "o SOM não aproveita" de "a informação não existe", foi usada uma regressão
+linear com *ridge*, treinada em 2011–2021. O alvo é a variação média do vento em 49–72 h
+em relação ao último valor, e o R² foi medido na validação 2022–2023:
+
+| Entradas | R² |
+| --- | ---: |
+| Só o nível (último valor) | 0,350 |
+| Forma das 72 h + nível | 0,344 |
+| Buracos coronais + nível | 0,412 |
+| Forma + recorrência + nível | 0,369 |
+| Forma + recorrência + buracos + nível | **0,423** |
+
+- **O nível é o que mais prevê a variação.** Vento rápido tende a desacelerar e vento lento
+  a acelerar. A versão original do mapa A subtraía o último valor e, por isso, não via essa
+  variável. Com o nível, a informação mútua dobra e o SOM sozinho melhora 1 km/s.
+- **A forma das 72 h não acrescenta nada** além do nível.
+- **Os buracos coronais acrescentam ~6 pontos de R², e a recorrência ~2.** É informação
+  real, mas pequena. É coerente com o ganho de 3,4 km/s dos buracos coronais no próprio
+  híbrido.
+- **Misturados à forma num mapa só,** os 36 valores de buraco coronal diluem as distâncias:
+  a informação mútua cai quando eles entram junto com o nível.
+
+**Conclusão:** o LightGBM já usa todas essas entradas, e melhor. O erro que sobra depois
+dele não depende de regime de um jeito que um SOM consiga capturar. Em todas as versões, o
+pós-processamento fica a menos de 0,1 km/s da previsão submetida, com intervalos de
+confiança que contêm zero.
+
 ## Se for retomar
 
-- **Entradas que carreguem o horário das subidas:**
-  - as frações de buraco coronal por longitude, nos dois lados do mapa A;
-  - ou a previsão física proposta em [physics_informed_model.md](physics_informed_model.md).
+- **Entradas que carreguem o horário das subidas.** Buracos coronais e nível já foram
+  testados (acima), sem ganho. O que resta é a previsão física proposta em
+  [physics_informed_model.md](physics_informed_model.md), que propaga os buracos até L1
+  e daria o horário de chegada de forma explícita.
 - **Objetivo:** se o que importa são picos e eventos (TIMSE por emissão, acerto de
   subidas), escolher σ e α por essas métricas e não pelo RMSE. Os cenários também podem ser
   usados como conjunto probabilístico, avaliado por CRPS.

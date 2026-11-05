@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 
 from benchlab_forecasting.som import (
-    SOM, SOMConfig, alpha_curve, block_bootstrap_gain, crps_ensemble, medoids, future_windows, link_matrix, mutual_information,
+    SOM, SOMConfig, alpha_curve, block_bootstrap_gain, combine_inputs, crps_ensemble, fit_scaling, medoids, future_windows, link_matrix, mutual_information,
     past_windows, post_process, recurrence_windows, scenario_weights,
 )
 
@@ -89,6 +89,19 @@ class SOMTest(unittest.TestCase):
         # A wider ensemble centred on the truth scores better than a single offset member.
         spread = np.array([[[0.0, 1, 2], [2.0, 3, 4]]])
         self.assertLess(crps_ensemble(y, spread), crps_ensemble(y, one))
+
+    def test_coronal_hole_block_is_scaled_to_the_speed_block(self):
+        rng = np.random.default_rng(2)
+        past = rng.normal(0, 80, (500, 72))
+        holes = rng.uniform(0, 0.3, (500, 36))
+        holes[0, :12] = np.nan  # one missing image
+        params = fit_scaling(past, holes)
+        x = combine_inputs(past, holes, params, ch_weight=1.0)
+        self.assertEqual(x.shape, (500, 108))
+        # Equal total variance in both blocks when the weight is 1; a missing image counts as average.
+        self.assertAlmostEqual(x[:, :72].var(0).sum() / x[:, 72:].var(0).sum(), 1, delta=0.1)
+        np.testing.assert_allclose(x[0, 72:84], 0)
+        np.testing.assert_array_equal(combine_inputs(past, None, params, None), past)
 
     def test_gaps_mark_windows_unusable(self):
         index = pd.date_range("2020-01-01", periods=400, freq="h", tz="UTC")

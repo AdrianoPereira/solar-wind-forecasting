@@ -162,6 +162,55 @@ def future_windows(speed, origins, last, horizon=HORIZON, min_valid=0.9):
     return filled - last[:, None], ok & np.isfinite(filled).all(1) & np.isfinite(last)
 
 
+CH_LAGS_HOURS = (0, 24, 48)
+
+
+def coronal_hole_block(holes, origins):
+    """Coronal-hole fractions (2 thresholds × 6 longitude strips) of the images selected for t0,
+    t0 − 24 h and t0 − 48 h, as used by the hybrid model; NaN where an image is missing."""
+    from .hybrid import coronal_hole_columns
+
+    table = holes.set_index("origin_utc")[coronal_hole_columns()]
+    origins = pd.DatetimeIndex(origins)
+    return np.hstack([table.reindex(origins - pd.Timedelta(hours=lag)).to_numpy(float) for lag in CH_LAGS_HOURS])
+
+
+def past_inputs(speed, holes, origins, with_recurrence=False, with_coronal_holes=False):
+    """Raw inputs of map A: speed shape (km/s), optional recurrence (km/s) and coronal holes."""
+    past, last, ok = past_windows(speed, origins)
+    if with_recurrence:
+        past = np.hstack([past, recurrence_windows(speed, origins, last)])
+    holes_block = coronal_hole_block(holes, origins) if with_coronal_holes else None
+    return past, holes_block, last, ok
+
+
+def fit_scaling(past, holes_block, last=None):
+    """Scaling learnt on training rows: speed by its overall std, coronal holes by column z-scores,
+    the level (last value) by its mean and std."""
+    params = {"speed_scale": float(np.nanstd(past))}
+    if last is not None:
+        params["level_mean"], params["level_std"] = float(np.nanmean(last)), float(np.nanstd(last))
+    if holes_block is not None:
+        params["ch_mean"] = np.nanmean(holes_block, 0)
+        params["ch_std"] = np.nanstd(holes_block, 0) + 1e-9
+    return params
+
+
+def combine_inputs(past, holes_block, params, ch_weight, last=None, level_weight=None):
+    """[speed / scale, w · √(speed dims / ch dims) · z(coronal holes), v · √(speed dims) · z(level)].
+
+    With a weight of 1 a block carries the same total variance as the speed shape; a missing image
+    counts as average (z = 0). Without extra blocks the speed shape is returned in km/s."""
+    blocks = [past / params["speed_scale"]]
+    if holes_block is not None:
+        z = np.nan_to_num((holes_block - params["ch_mean"]) / params["ch_std"])
+        blocks.append(ch_weight * np.sqrt(past.shape[1] / holes_block.shape[1]) * z)
+    if level_weight is not None and last is not None:
+        z = np.nan_to_num((last - params["level_mean"]) / params["level_std"])[:, None]
+        blocks.append(level_weight * np.sqrt(past.shape[1]) * z)
+    return past if len(blocks) == 1 else np.hstack(blocks)
+
+
 # ---------------------------------------------------------------- link and post-processing
 
 def link_matrix(past_map, future_map, past, future, smoothing=1.0, prior=1.0):
@@ -317,13 +366,18 @@ def experiment(args):
               "test": origins_between(*args.test)}
     data = {}
     for name, origins in splits.items():
-        past, last, ok_past = past_windows(speed, origins)
-        if args.with_recurrence:
-            # Same km/s units in both halves, so neither dominates the distances by scale.
-            past = np.hstack([past, recurrence_windows(speed, origins, last)])
+        # Speed and recurrence share km/s units, so neither dominates the distances by scale.
+        raw, holes_block, last, ok_past = past_inputs(speed, holes, origins, args.with_recurrence,
+                                                      args.with_coronal_holes)
         future, ok_future = future_windows(speed, origins, last)
-        data[name] = {"origins": origins, "past": past, "last": last, "ok": ok_past, "future": future,
-                      "ok_future": ok_future}
+        data[name] = {"origins": origins, "raw": raw, "holes": holes_block, "last": last, "ok": ok_past,
+                      "future": future, "ok_future": ok_future}
+    usable_rows = data["train"]["ok"] & data["train"]["ok_future"]
+    scaling = fit_scaling(data["train"]["raw"][usable_rows],
+                          None if data["train"]["holes"] is None else data["train"]["holes"][usable_rows],
+                          data["train"]["last"][usable_rows])
+    ch_weights = args.ch_weights if args.with_coronal_holes else [None]
+    level_weights = args.level_weights if args.with_level else [None]
     for name in ("validation", "test"):
         data[name]["forecast"], data[name]["y"] = base_forecasts(plasma, holes, splits[name], args.model_dir)
     train = data["train"]
@@ -335,7 +389,10 @@ def experiment(args):
     sigmas = [5.0, 10.0, 20.0, 40.0, 80.0, np.inf]
     alphas = [(a, b) for a in np.linspace(0, 1, 11) for b in np.linspace(0, 1, 11)]
     search, best = [], None
-    for past_side, future_side in itertools.product(args.past_sizes, args.future_sizes):
+    for ch_weight, level_weight, past_side, future_side in itertools.product(
+            ch_weights, level_weights, args.past_sizes, args.future_sizes):
+        for d in data.values():
+            d["past"] = combine_inputs(d["raw"], d["holes"], scaling, ch_weight, d["last"], level_weight)
         past_map = SOM(SOMConfig(past_side, past_side, seed=args.seed)).fit(train["past"][usable])
         future_map = SOM(SOMConfig(future_side, future_side, seed=args.seed)).fit(train["future"][usable])
         link = link_matrix(past_map, future_map, train["past"][usable], train["future"][usable])
@@ -347,16 +404,19 @@ def experiment(args):
             for a_first, a_last in alphas:
                 alpha = alpha_curve(a_first, a_last)
                 p = np.where(val["ok"][:, None], alpha * val["forecast"] + (1 - alpha) * scenario, val["forecast"])
-                row = {"past_side": past_side, "future_side": future_side, "sigma": sigma,
+                row = {"ch_weight": ch_weight, "level_weight": level_weight, "past_side": past_side, "future_side": future_side, "sigma": sigma,
                        "alpha_first": round(a_first, 2), "alpha_last": round(a_last, 2),
                        "validation_rmse": rmse(val["y"], p)}
                 search.append(row)
                 if best is None or row["validation_rmse"] < best[0]["validation_rmse"]:
                     best = (row, past_map, future_map, link)
-        print(f"maps {past_side}x{past_side} / {future_side}x{future_side}: best validation RMSE so far "
+        print(f"ch weight {ch_weight}, level weight {level_weight}, maps {past_side}x{past_side} / {future_side}x{future_side}: best validation RMSE so far "
               f"{best[0]['validation_rmse']:.2f}", flush=True)
     choice, past_map, future_map, link = best
     pd.DataFrame(search).to_csv(output / "validation_search.csv", index=False)
+    for d in data.values():  # inputs of the chosen coronal-hole weight
+        d["past"] = combine_inputs(d["raw"], d["holes"], scaling, choice["ch_weight"], d["last"],
+                                   choice["level_weight"])
 
     # Variants for the report, all with the chosen maps: the user's original analog forecast
     # (P(j | i) only, no model), the same as a post-processing, and the model-guided version.
@@ -380,8 +440,9 @@ def experiment(args):
     variants["model-guided SOM (chosen)"] = guided
 
     report = {"config": {"window_hours": WINDOW, "horizon_hours": HORIZON,
-                         "past_input": "past 72 h" + (" + 27-day recurrence of the next 72 h"
-                                                       if args.with_recurrence else ""), "splits": {
+                         "past_input": "past 72 h" + (" + 27-day recurrence of the next 72 h" if args.with_recurrence else "")
+                      + (" + coronal holes (0, 24, 48 h)" if args.with_coronal_holes else "")
+                      + (" + level" if args.with_level else ""), "splits": {
         k: [v.min().isoformat(), v.max().isoformat(), len(v)] for k, v in splits.items()}},
         "train_usable_issuances": int(usable.sum()), "choice": choice,
         "maps": {"past": {"side": choice["past_side"],
@@ -403,7 +464,11 @@ def experiment(args):
                                                                      test["forecast"], values)
     np.savez_compressed(output / "maps.npz", past=past_map.prototypes, future=future_map.prototypes,
                         past_grid=past_map.grid, future_grid=future_map.grid, link=link,
-                        alpha=alpha, sigma=choice["sigma"])
+                        alpha=alpha, sigma=choice["sigma"], speed_scale=scaling["speed_scale"],
+                        ch_weight=np.nan if choice["ch_weight"] is None else choice["ch_weight"],
+                        ch_mean=scaling.get("ch_mean", np.zeros(0)), ch_std=scaling.get("ch_std", np.zeros(0)),
+                        level_weight=np.nan if choice["level_weight"] is None else choice["level_weight"],
+                        level_mean=scaling["level_mean"], level_std=scaling["level_std"])
     pd.DataFrame({"origin_utc": np.repeat(test["origins"], HORIZON),
                   "horizon": np.tile(np.arange(1, HORIZON + 1), len(test["origins"])),
                   "y": test["y"].ravel(), "last": np.repeat(test["last"], HORIZON),
@@ -463,6 +528,8 @@ def sharp(args):
     saved = np.load(source / "maps.npz")
     choice = report["choice"]
     with_recurrence = "recurrence" in report["config"]["past_input"]
+    with_coronal_holes = "coronal holes" in report["config"]["past_input"]
+    with_level = "level" in report["config"]["past_input"]
     output = args.output_dir
     output.mkdir(parents=True, exist_ok=True)
     plasma = load_plasma(args.level2, args.operational)
@@ -481,11 +548,16 @@ def sharp(args):
     past_map, future_map = maps
     link, sigma = saved["link"], float(saved["sigma"])
 
+    scaling = {"speed_scale": float(saved["speed_scale"]) if "speed_scale" in saved.files else 1.0,
+               "ch_mean": saved["ch_mean"] if "ch_mean" in saved.files else None,
+               "ch_std": saved["ch_std"] if "ch_std" in saved.files else None,
+               "level_mean": float(saved["level_mean"]) if "level_mean" in saved.files else None,
+               "level_std": float(saved["level_std"]) if "level_std" in saved.files else None}
     data = {}
     for name, origins in splits.items():
-        past, last, ok = past_windows(speed, origins)
-        if with_recurrence:
-            past = np.hstack([past, recurrence_windows(speed, origins, last)])
+        raw, holes_block, last, ok = past_inputs(speed, holes, origins, with_recurrence, with_coronal_holes)
+        past = combine_inputs(raw, holes_block, scaling, float(saved["ch_weight"]) if with_coronal_holes else None,
+                              last, float(saved["level_weight"]) if with_level else None)
         future, ok_future = future_windows(speed, origins, last)
         data[name] = {"origins": origins, "past": past, "last": last, "ok": ok, "future": future,
                       "ok_future": ok_future}
@@ -586,6 +658,14 @@ def main(argv=None):
     run.add_argument("--future-sizes", type=int, nargs="+", default=[4, 6, 8])
     run.add_argument("--with-recurrence", action="store_true",
                      help="Map A also sees the speed 27 days before each of the next 72 hours")
+    run.add_argument("--with-coronal-holes", action="store_true",
+                     help="Map A also sees the coronal-hole fractions of the images at t0, t0 − 24 h and t0 − 48 h")
+    run.add_argument("--ch-weights", type=float, nargs="+", default=[0.5, 1.0, 2.0],
+                     help="Weights of the coronal-hole block tried on validation")
+    run.add_argument("--with-level", action="store_true",
+                     help="Map A also sees the level of the speed (the last value), z-scored")
+    run.add_argument("--level-weights", type=float, nargs="+", default=[0.5, 1.0],
+                     help="Weights of the level block tried on validation")
     run.add_argument("--seed", type=int, default=0)
     run.add_argument("--output-dir", type=Path, required=True)
     sharp_run = sub.add_parser("sharp", help="Real-series scenarios (medoids, sampled members) on saved maps")
