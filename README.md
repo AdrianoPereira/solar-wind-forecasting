@@ -258,6 +258,16 @@ benchmark above). Documentation for each (in Portuguese):
   47.6 vs 38.2). Adding the coronal holes and the speed level to the input map doesn't
   change this: the booster already uses that information better.
 
+### TIMSE-oriented forecast
+
+The ranking metric is TIMSE, and the submitted forecast is tuned for RMSE.
+[docs/timse_blend.md](docs/timse_blend.md) blends it with a LightGBM trained on TIMSE
+weights, plus a constant offset. The blend is chosen on 2022–2023 to be robust to how TIMSE
+is aggregated (pooled, 90-day windows, per month, per issuance). On the test period, the
+robust blend lowers TIMSE by 32–49% under every pooled or mean aggregation, but nearly
+triples it if TIMSE is the median per issuance, and RMSE rises from 74 to 118 km/s. Which
+version to submit depends on the official aggregation.
+
 ### Future work
 
 - [Physics-informed model](docs/physics_informed_model.md) (proposal, not implemented). It
